@@ -1,11 +1,11 @@
 ---
 - name: Enable VXLAN on leaf switches
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - vxlan
 
 - name: Configure NVE interface
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - interface Nve1
       - source {{ vtep_loopback.split('/')[0] }}
@@ -15,7 +15,7 @@
   when: vtep_loopback is defined
 
 - name: Configure bridge domain for VXLAN
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - bridge-domain {{ item }}
       - vxlan vni {{ item }}
@@ -24,7 +24,7 @@
   when: vni_range is defined
 
 - name: Configure VLAN to VNI mapping
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - bridge-domain {{ item }}
       - vxlan vni {{ item }}
@@ -36,7 +36,7 @@
   when: vni_range is defined
 
 - name: Configure EVPN for VXLAN
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - bgp {{ asn }}
       - l2vpn evpn
@@ -46,7 +46,7 @@
       - quit
 
 - name: Configure ARP suppression
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - interface Nve1
       - arp-suppress enable
@@ -54,7 +54,7 @@
   when: vtep_loopback is defined
 
 - name: Configure MAC learning limit
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - interface Nve1
       - mac-limit maximum 65536

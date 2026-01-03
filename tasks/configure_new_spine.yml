@@ -32,6 +32,6 @@
       include_tasks: bgp_overlay.yml
 
     - name: Save configuration
-      huawei.vrp.vrp_command:
+      ansible.netcommon.cli_command:
         commands:
           - save

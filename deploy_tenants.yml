@@ -47,7 +47,7 @@
       delegate_to: localhost
 
     - name: Backup current configuration
-      huawei.vrp.vrp_command:
+      ansible.netcommon.cli_command:
         commands:
           - display current-configuration
       register: backup_config_output
@@ -60,7 +60,7 @@
 
   tasks:
     - name: Create VRF for tenant
-      huawei.vrp.vrp_config:
+      ansible.netcommon.cli_config:
         lines:
           - ip vpn-instance {{ item.vrf }}
           - route-distinguisher {{ asn }}:{{ item.vni }}
@@ -72,7 +72,7 @@
         label: "{{ item.name }}"
 
     - name: Create VLAN for tenant
-      huawei.vrp.vrp_config:
+      ansible.netcommon.cli_config:
         lines:
           - vlan {{ item.vlan }}
           - name Tenant_{{ item.name | upper }}
@@ -82,7 +82,7 @@
         label: "{{ item.name }}"
 
     - name: Create VNI and map to VLAN
-      huawei.vrp.vrp_config:
+      ansible.netcommon.cli_config:
         lines:
           - bridge-domain {{ item.vni }}
           - vxlan vni {{ item.vni }}
@@ -96,7 +96,7 @@
         label: "{{ item.name }}"
 
     - name: Configure VXLAN tunnel
-      huawei.vrp.vrp_config:
+      ansible.netcommon.cli_config:
         lines:
           - interface Nve1
           - source {{ vtep_loopback.split('/')[0] }}
@@ -107,7 +107,7 @@
         label: "{{ item.name }}"
 
     - name: Create SVI for tenant
-      huawei.vrp.vrp_config:
+      ansible.netcommon.cli_config:
         lines:
           - interface Vlanif{{ item.vlan }}
           - ip binding vpn-instance {{ item.vrf }}
@@ -119,7 +119,7 @@
         label: "{{ item.name }}"
 
     - name: Configure tenant routing
-      huawei.vrp.vrp_config:
+      ansible.netcommon.cli_config:
         lines:
           - bgp {{ asn }}
           - ipv4-family vpn-instance {{ item.vrf }}
@@ -133,12 +133,12 @@
         label: "{{ item.name }}"
 
     - name: Save configuration
-      huawei.vrp.vrp_command:
+      ansible.netcommon.cli_command:
         commands:
           - save
 
     - name: Verify tenant configuration
-      huawei.vrp.vrp_command:
+      ansible.netcommon.cli_command:
         commands:
           - display vpn-instance {{ item.vrf }}
           - display bridge-domain {{ item.vni }}

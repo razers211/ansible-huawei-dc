@@ -1,13 +1,13 @@
 ---
 - name: Configure OSPF process
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - ospf {{ ospf_area }}
       - router-id {{ loopback0.split('/')[0] }}
       - quit
 
 - name: Advertise loopback in OSPF
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - ospf {{ ospf_area }}
       - area {{ ospf_area }}
@@ -17,7 +17,7 @@
   when: loopback0 is defined
 
 - name: Advertise VTEP loopback in OSPF (leaf only)
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - ospf {{ ospf_area }}
       - area {{ ospf_area }}
@@ -29,7 +29,7 @@
     - vtep_loopback is defined
 
 - name: Advertise point-to-point links in OSPF
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - ospf {{ ospf_area }}
       - area {{ ospf_area }}
@@ -40,7 +40,7 @@
   when: item.ip is defined
 
 - name: Set OSPF network type to point-to-point
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - interface {{ item.interface }}
       - ospf network-type p2p
@@ -49,7 +49,7 @@
   when: item.ip is defined
 
 - name: Configure OSPF passive interfaces
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - ospf {{ ospf_area }}
       - area {{ ospf_area }}
@@ -59,7 +59,7 @@
   when: loopback0 is defined
 
 - name: Configure OSPF passive VTEP interface (leaf only)
-  huawei.vrp.vrp_config:
+  ansible.netcommon.cli_config:
     lines:
       - ospf {{ ospf_area }}
       - area {{ ospf_area }}
