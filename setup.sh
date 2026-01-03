@@ -20,6 +20,17 @@ if ! command -v pip3 &> /dev/null; then
     exit 1
 fi
 
+# Check Python version
+python_version=$(python3 -c "import sys; print('.'.join(map(str, sys.version_info[:2])))")
+required_version="3.8"
+
+if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
+    echo "❌ Python $required_version or higher is required. Found: $python_version"
+    exit 1
+fi
+
+echo "✅ Python $python_version detected"
+
 # Install Ansible
 echo "📦 Installing Ansible..."
 pip3 install ansible>=4.0
@@ -70,6 +81,7 @@ required_files=(
     "add_leaf.yml"
     "add_spine.yml"
     "interactive_fabric.py"
+    "generate_inventory.py"
 )
 
 echo "📋 Checking required files..."
@@ -86,7 +98,7 @@ echo ""
 echo "🎉 Setup completed successfully!"
 echo ""
 echo "Next steps:"
-echo "1. Configure your inventory: vim inventory/hosts.yml"
+echo "1. Configure your inventory: python3 generate_inventory.py"
 echo "2. Set up credentials: ansible-vault edit inventory/group_vars/vault.yml"
 echo "3. Run the interactive manager: python3 interactive_fabric.py"
 echo ""
