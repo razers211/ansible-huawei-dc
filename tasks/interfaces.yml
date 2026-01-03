@@ -1,6 +1,6 @@
 ---
 - name: Configure loopback interfaces
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface Loopback0
       - ip address {{ loopback0 }}
@@ -9,7 +9,7 @@
   when: loopback0 is defined
 
 - name: Configure VTEP loopback on leaf switches
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface Loopback1
       - ip address {{ vtep_loopback }}
@@ -20,7 +20,7 @@
     - vtep_loopback is defined
 
 - name: Configure spine interfaces
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface {{ item.interface }}
       - description {{ item.description }}
@@ -31,7 +31,7 @@
   when: "'spine' in group_names"
 
 - name: Configure leaf interfaces
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface {{ item.interface }}
       - description {{ item.description }}
@@ -42,7 +42,7 @@
   when: "'leaf' in group_names"
 
 - name: Configure access ports on leaf switches
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface {{ item.interface }}
       - description {{ item.description }}
@@ -58,7 +58,7 @@
     - item.vlan is defined
 
 - name: Configure trunk ports on leaf switches
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface {{ item.interface }}
       - description {{ item.description }}

@@ -83,7 +83,7 @@
       when: backup_config | bool
 
     - name: Backup current configuration
-      huawei_vrp_command:
+      huawei.vrp.vrp_command:
         commands:
           - display current-configuration
       register: backup_config_output
@@ -115,13 +115,13 @@
       when: "'leaf' in group_names"
 
     - name: Save configuration
-      huawei_vrp_command:
+      huawei.vrp.vrp_command:
         commands:
           - save
       register: save_result
 
     - name: Verify configuration
-      huawei_vrp_command:
+      huawei.vrp.vrp_command:
         commands:
           - display ip interface brief
           - display bgp peer

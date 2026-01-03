@@ -54,6 +54,6 @@
           - quit
 
     - name: Save configuration
-      huawei_vrp_command:
+      huawei.vrp.vrp_command:
         commands:
           - save

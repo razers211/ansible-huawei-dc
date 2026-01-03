@@ -1,6 +1,6 @@
 ---
 - name: Configure BGP process
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - bgp {{ asn }}
       - router-id {{ loopback0.split('/')[0] }}
@@ -12,7 +12,7 @@
   when: loopback0 is defined
 
 - name: Configure BGP address families for leaf switches
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - bgp {{ asn }}
       - ipv4-family unicast
@@ -30,7 +30,7 @@
   when: "'leaf' in group_names"
 
 - name: Configure BGP address families for spine switches
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - bgp {{ asn }}
       - ipv4-family unicast
@@ -48,13 +48,13 @@
   when: "'spine' in group_names"
 
 - name: Create BGP route policy
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - route-policy PASS_ALL permit node 10
       - quit
 
 - name: Configure BGP timers
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - bgp {{ asn }}
       - peer {{ item.loopback0.split('/')[0] }} timer keep {{ bgp_keepalive_time }} hold {{ bgp_hold_time }}

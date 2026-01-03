@@ -1,25 +1,25 @@
 ---
 - name: Configure system hostname
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - sysname {{ inventory_hostname }}
 
 - name: Configure NTP servers
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - ntp-server {{ item }}
   loop: "{{ ntp_servers }}"
   when: ntp_servers | length > 0
 
 - name: Configure DNS servers
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - dns server {{ item }}
   loop: "{{ dns_servers }}"
   when: dns_servers | length > 0
 
 - name: Configure syslog servers
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - info-center source default channel 4 log level {{ logging_level }}
       - info-center loghost {{ item }}
@@ -27,7 +27,7 @@
   when: syslog_servers | length > 0
 
 - name: Configure MTU on interfaces
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - interface {{ item.interface }}
       - mtu {{ default_mtu }}
@@ -35,6 +35,6 @@
   loop: "{{ spine_interfaces if 'spine' in group_names else leaf_interfaces }}"
 
 - name: Enable LLDP globally
-  huawei_vrp_config:
+  huawei.vrp.vrp_config:
     lines:
       - lldp enable
