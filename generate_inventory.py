@@ -48,6 +48,44 @@ class InventoryGenerator:
         config['leaf_interface_start'] = int(input("Leaf interface start number [1]: ").strip() or "1")
         config['leaf_access_interface'] = input("Leaf access interface [48]: ").strip() or "48"
         
+        # Interface mapping mode
+        print("\n🔌 Interface Mapping Mode:")
+        print("1. Sequential (auto-generate interfaces)")
+        print("2. Exact Match (specify exact interfaces)")
+        mapping_mode = input("Select interface mapping mode [1]: ").strip() or "1"
+        config['interface_mapping_mode'] = mapping_mode
+        
+        if mapping_mode == "2":
+            config['spine_interfaces'] = {}
+            config['leaf_interfaces'] = {}
+            
+            print("\n🔌 Spine Interface Configuration:")
+            for spine_idx in range(config['spine_count']):
+                hostname = f"spine{spine_idx+1:02d}"
+                interfaces = []
+                for leaf_idx in range(config['leaf_count']):
+                    interface = input(f"  {hostname} -> leaf{leaf_idx+1:02d} interface [10GE1/0/{spine_idx + leaf_idx + 1}]: ").strip()
+                    if not interface:
+                        interface = f"10GE1/0/{spine_idx + leaf_idx + 1}"
+                    interfaces.append(interface)
+                config['spine_interfaces'][hostname] = interfaces
+            
+            print("\n🔌 Leaf Interface Configuration:")
+            for leaf_idx in range(config['leaf_count']):
+                hostname = f"leaf{leaf_idx+1:02d}"
+                interfaces = []
+                for spine_idx in range(config['spine_count']):
+                    interface = input(f"  {hostname} -> spine{spine_idx+1:02d} interface [10GE1/0/{spine_idx + leaf_idx + 1}]: ").strip()
+                    if not interface:
+                        interface = f"10GE1/0/{spine_idx + leaf_idx + 1}"
+                    interfaces.append(interface)
+                
+                access_interface = input(f"  {hostname} access interface [10GE1/0/{config['leaf_access_interface']}]: ").strip()
+                if not access_interface:
+                    access_interface = f"10GE1/0/{config['leaf_access_interface']}"
+                interfaces.append(access_interface)
+                config['leaf_interfaces'][hostname] = interfaces
+        
         # Management IPs
         print("\n💻 Management IP Configuration")
         config['mgmt_base_ip'] = input("Management IP base [192.168.1]: ").strip() or "192.168.1"
@@ -120,18 +158,33 @@ class InventoryGenerator:
         loopback0 = ip_scheme['spine_loopbacks'][spine_idx]
         
         spine_interfaces = []
-        interface_num = config['spine_interface_start']
         
-        for leaf_idx in range(config['leaf_count']):
-            pair_key = f"spine{spine_idx+1}_leaf{leaf_idx+1}"
-            interconnect = ip_scheme['interconnect_ips'][pair_key]
-            
-            spine_interfaces.append({
-                'interface': f'10GE1/0/{interface_num}',
-                'description': f'Link to leaf{leaf_idx+1:02d}',
-                'ip': interconnect['spine_ip']
-            })
-            interface_num += 1
+        if config.get('interface_mapping_mode') == "2":
+            # Use exact interface mapping
+            interfaces = config['spine_interfaces'].get(hostname, [])
+            for leaf_idx, interface_name in enumerate(interfaces):
+                if leaf_idx < config['leaf_count']:
+                    pair_key = f"spine{spine_idx+1}_leaf{leaf_idx+1}"
+                    interconnect = ip_scheme['interconnect_ips'][pair_key]
+                    
+                    spine_interfaces.append({
+                        'interface': interface_name,
+                        'description': f'Link to leaf{leaf_idx+1:02d}',
+                        'ip': interconnect['spine_ip']
+                    })
+        else:
+            # Use sequential interface numbering
+            interface_num = config['spine_interface_start']
+            for leaf_idx in range(config['leaf_count']):
+                pair_key = f"spine{spine_idx+1}_leaf{leaf_idx+1}"
+                interconnect = ip_scheme['interconnect_ips'][pair_key]
+                
+                spine_interfaces.append({
+                    'interface': f'10GE1/0/{interface_num}',
+                    'description': f'Link to leaf{leaf_idx+1:02d}',
+                    'ip': interconnect['spine_ip']
+                })
+                interface_num += 1
         
         return {
             'ansible_host': mgmt_ip,
@@ -141,34 +194,54 @@ class InventoryGenerator:
         }
     
     def generate_leaf_config(self, leaf_idx: int, config: Dict, ip_scheme: Dict) -> Dict:
-        """Generate configuration for a leaf switch"""
         hostname = f"leaf{leaf_idx+1:02d}"
         mgmt_ip = ip_scheme['mgmt_ips'][config['spine_count'] + leaf_idx]
         loopback0 = ip_scheme['leaf_loopbacks'][leaf_idx]
         vtep_loopback = ip_scheme['vtep_loopbacks'][leaf_idx]
         
         leaf_interfaces = []
-        interface_num = config['leaf_interface_start']
         
-        # Uplinks to spines
-        for spine_idx in range(config['spine_count']):
-            pair_key = f"spine{spine_idx+1}_leaf{leaf_idx+1}"
-            interconnect = ip_scheme['interconnect_ips'][pair_key]
+        if config.get('interface_mapping_mode') == "2":
+            interfaces = config['leaf_interfaces'].get(hostname, [])
+            for spine_idx, interface_name in enumerate(interfaces):
+                if spine_idx < config['spine_count']:
+                    pair_key = f"spine{spine_idx+1}_leaf{leaf_idx+1}"
+                    interconnect = ip_scheme['interconnect_ips'][pair_key]
+                    
+                    leaf_interfaces.append({
+                        'interface': interface_name,
+                        'description': f'Link to spine{spine_idx+1:02d}',
+                        'ip': interconnect['leaf_ip']
+                    })
+            
+            # Add access interface (last one in the list)
+            if len(interfaces) > config['spine_count']:
+                access_interface = interfaces[config['spine_count']]
+                leaf_interfaces.append({
+                    'interface': access_interface,
+                    'description': 'Server Access',
+                    'mode': 'access',
+                    'vlan': str(100 + leaf_idx)
+                })
+        else:
+            interface_num = config['leaf_interface_start']
+            for spine_idx in range(config['spine_count']):
+                pair_key = f"spine{spine_idx+1}_leaf{leaf_idx+1}"
+                interconnect = ip_scheme['interconnect_ips'][pair_key]
+                
+                leaf_interfaces.append({
+                    'interface': f'10GE1/0/{interface_num}',
+                    'description': f'Link to spine{spine_idx+1:02d}',
+                    'ip': interconnect['leaf_ip']
+                })
+                interface_num += 1
             
             leaf_interfaces.append({
-                'interface': f'10GE1/0/{interface_num}',
-                'description': f'Link to spine{spine_idx+1:02d}',
-                'ip': interconnect['leaf_ip']
+                'interface': f'10GE1/0/{config["leaf_access_interface"]}',
+                'description': 'Server Access',
+                'mode': 'access',
+                'vlan': str(100 + leaf_idx)
             })
-            interface_num += 1
-        
-        # Access port
-        leaf_interfaces.append({
-            'interface': f'10GE1/0/{config["leaf_access_interface"]}',
-            'description': 'Server Access',
-            'mode': 'access',
-            'vlan': str(100 + leaf_idx)
-        })
         
         return {
             'ansible_host': mgmt_ip,
@@ -237,9 +310,17 @@ class InventoryGenerator:
         print(f"Interconnect Base: {config['interconnect_subnet_base']}")
         print()
         print("🔌 Interface Mapping:")
-        print(f"Spine Interface Start: 10GE1/0/{config['spine_interface_start']}")
-        print(f"Leaf Interface Start: 10GE1/0/{config['leaf_interface_start']}")
-        print(f"Leaf Access Interface: 10GE1/0/{config['leaf_access_interface']}")
+        if config.get('interface_mapping_mode') == "2":
+            print("  Mode: Exact Match (user-specified interfaces)")
+            for hostname, interfaces in config.get('spine_interfaces', {}).items():
+                print(f"  {hostname}: {interfaces}")
+            for hostname, interfaces in config.get('leaf_interfaces', {}).items():
+                print(f"  {hostname}: {interfaces}")
+        else:
+            print(f"  Mode: Sequential")
+            print(f"  Spine Interface Start: 10GE1/0/{config['spine_interface_start']}")
+            print(f"  Leaf Interface Start: 10GE1/0/{config['leaf_interface_start']}")
+            print(f"  Leaf Access Interface: 10GE1/0/{config['leaf_access_interface']}")
         print()
         print("💻 Management IPs:")
         for i, ip in enumerate(ip_scheme['mgmt_ips']):
