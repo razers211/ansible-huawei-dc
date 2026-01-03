@@ -56,7 +56,7 @@ fi
 
 echo "🔐 Please configure your credentials:"
 echo "   Run: ansible-vault edit inventory/group_vars/vault.yml"
-echo "   Add your admin, enable, and BGP passwords"
+echo "   Add your SSH username, password, enable password, and BGP password"
 
 # Make interactive script executable
 echo "🔧 Making interactive script executable..."

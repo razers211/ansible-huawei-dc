@@ -3,6 +3,19 @@
 # ansible-vault encrypt inventory/group_vars/vault.yml
 # ansible-vault edit inventory/group_vars/vault.yml
 
-vault_admin_password: "your_admin_password"
-vault_enable_password: "your_enable_password"
-vault_bgp_password: "your_bgp_password"
+# SSH Credentials for Ansible
+ansible_user: "your_ssh_username"
+ansible_password: "your_ssh_password"
+ansible_become_password: "your_enable_password"
+
+# BGP Authentication Password
+bgp_password: "your_bgp_password"
+
+# Optional: SSH Key (if using key-based authentication)
+# ansible_ssh_private_key_file: "/path/to/private/key"
+
+# Optional: SSH Port (if not using default 22)
+# ansible_port: 22
+
+# Optional: SSH Connection Timeout
+# ansible_timeout: 30
