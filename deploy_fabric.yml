@@ -10,15 +10,15 @@
     - name: "fabric_name"
       prompt: "Enter fabric name"
       private: no
-      default: "{{ fabric_name }}"
+      default: "spine_leaf_fabric"
     - name: "asn"
       prompt: "Enter BGP ASN"
       private: no
-      default: "{{ asn }}"
+      default: "65000"
     - name: "underlay_protocol"
       prompt: "Underlay routing protocol (ospf/isis)"
       private: no
-      default: "{{ underlay_routing_protocol }}"
+      default: "ospf"
     - name: "spine_loopback_subnet"
       prompt: "Enter spine loopback subnet (e.g., 10.255.1.0/24)"
       private: no
