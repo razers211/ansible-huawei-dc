@@ -1,0 +1,153 @@
+---
+- name: Deploy Spine-Leaf Fabric
+  hosts: all
+  gather_facts: no
+  vars_prompt:
+    - name: "confirm_deployment"
+      prompt: "This will deploy a complete spine-leaf fabric. Are you sure? (yes/no)"
+      private: no
+      default: "no"
+    - name: "fabric_name"
+      prompt: "Enter fabric name"
+      private: no
+      default: "{{ fabric_name }}"
+    - name: "asn"
+      prompt: "Enter BGP ASN"
+      private: no
+      default: "{{ asn }}"
+    - name: "underlay_protocol"
+      prompt: "Underlay routing protocol (ospf/isis)"
+      private: no
+      default: "{{ underlay_routing_protocol }}"
+    - name: "spine_loopback_subnet"
+      prompt: "Enter spine loopback subnet (e.g., 10.255.1.0/24)"
+      private: no
+      default: "10.255.1.0/24"
+    - name: "leaf_loopback_subnet"
+      prompt: "Enter leaf loopback subnet (e.g., 10.255.2.0/24)"
+      private: no
+      default: "10.255.2.0/24"
+    - name: "vtep_loopback_subnet"
+      prompt: "Enter VTEP loopback subnet (e.g., 10.255.3.0/24)"
+      private: no
+      default: "10.255.3.0/24"
+    - name: "interconnect_subnet_base"
+      prompt: "Enter interconnect subnet base (e.g., 10.1.0.0/16)"
+      private: no
+      default: "10.1.0.0/16"
+    - name: "spine_interface_start"
+      prompt: "Spine interface starting number (e.g., 1 for 10GE1/0/1)"
+      private: no
+      default: "1"
+    - name: "leaf_interface_start"
+      prompt: "Leaf interface starting number (e.g., 1 for 10GE1/0/1)"
+      private: no
+      default: "1"
+
+  pre_tasks:
+    - name: Verify deployment confirmation
+      fail:
+        msg: "Deployment not confirmed. Exiting."
+      when: confirm_deployment != "yes"
+
+    - name: Generate IP addressing scheme
+      set_fact:
+        ip_scheme:
+          spine_loopback_base: "{{ spine_loopback_subnet.split('.')[0:3] | join('.') }}"
+          leaf_loopback_base: "{{ leaf_loopback_subnet.split('.')[0:3] | join('.') }}"
+          vtep_loopback_base: "{{ vtep_loopback_subnet.split('.')[0:3] | join('.') }}"
+          interconnect_base: "{{ interconnect_subnet_base.split('.')[0:2] | join('.') }}"
+          spine_loopback_octet: "{{ spine_loopback_subnet.split('.')[2] }}"
+          leaf_loopback_octet: "{{ leaf_loopback_subnet.split('.')[2] }}"
+          vtep_loopback_octet: "{{ vtep_loopback_subnet.split('.')[2] }}"
+
+    - name: Update inventory with dynamic IPs
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - DYNAMIC IP SCHEME"
+        block: |
+          # Dynamic IP Configuration
+          spine_loopback_base: "{{ ip_scheme.spine_loopback_base }}"
+          leaf_loopback_base: "{{ ip_scheme.leaf_loopback_base }}"
+          vtep_loopback_base: "{{ ip_scheme.vtep_loopback_base }}"
+          interconnect_base: "{{ ip_scheme.interconnect_base }}"
+          asn: "{{ asn }}"
+        insertbefore: "all:"
+
+    - name: Create backup directory
+      file:
+        path: "{{ config_backup_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      when: backup_config | bool
+
+    - name: Backup current configuration
+      huawei_vrp_command:
+        commands:
+          - display current-configuration
+      register: backup_config_output
+      when: backup_config | bool
+
+    - name: Save backup configuration
+      copy:
+        content: "{{ backup_config_output.stdout[0] }}"
+        dest: "{{ config_backup_dir }}/{{ inventory_hostname }}_{{ ansible_date_time.iso8601 }}.cfg"
+      delegate_to: localhost
+      when: backup_config | bool
+
+  tasks:
+    - name: Configure basic system settings
+      include_tasks: tasks/basic_system.yml
+
+    - name: Configure interfaces
+      include_tasks: tasks/interfaces.yml
+
+    - name: Configure underlay routing
+      include_tasks: tasks/underlay_routing.yml
+      when: underlay_protocol == "ospf"
+
+    - name: Configure BGP overlay
+      include_tasks: tasks/bgp_overlay.yml
+
+    - name: Configure VXLAN
+      include_tasks: tasks/vxlan.yml
+      when: "'leaf' in group_names"
+
+    - name: Save configuration
+      huawei_vrp_command:
+        commands:
+          - save
+      register: save_result
+
+    - name: Verify configuration
+      huawei_vrp_command:
+        commands:
+          - display ip interface brief
+          - display bgp peer
+          - display ospf peer
+      register: verification_output
+
+    - name: Display verification results
+      debug:
+        var: verification_output.stdout_lines
+
+  post_tasks:
+    - name: Generate fabric topology report
+      template:
+        src: templates/fabric_report.j2
+        dest: "{{ config_backup_dir }}/fabric_report_{{ ansible_date_time.iso8601 }}.txt"
+      delegate_to: localhost
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          Fabric deployment completed successfully!
+          Fabric Name: {{ fabric_name }}
+          BGP ASN: {{ asn }}
+          Underlay Protocol: {{ underlay_protocol }}
+          Backup Location: {{ config_backup_dir }}
+          
+          Next steps:
+          1. Run deploy_tenants.yml to create tenant networks
+          2. Use add_leaf.yml or add_spine.yml to expand the fabric

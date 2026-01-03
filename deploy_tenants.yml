@@ -1,0 +1,169 @@
+---
+- name: Deploy Tenant Networks
+  hosts: leaf
+  gather_facts: no
+  vars_prompt:
+    - name: "tenant_name"
+      prompt: "Enter tenant name"
+      private: no
+    - name: "tenant_vni"
+      prompt: "Enter VNI for this tenant"
+      private: no
+      default: "10000"
+    - name: "tenant_vlan"
+      prompt: "Enter VLAN ID for this tenant"
+      private: no
+      default: "100"
+    - name: "tenant_vrf"
+      prompt: "Enter VRF name for this tenant"
+      private: no
+      default: "TENANT_{{ tenant_name | upper }}"
+    - name: "tenant_subnet"
+      prompt: "Enter subnet (e.g., 10.10.0.0/24)"
+      private: no
+    - name: "tenant_gateway"
+      prompt: "Enter gateway IP"
+      private: no
+    - name: "add_more_tenants"
+      prompt: "Add another tenant? (yes/no)"
+      private: no
+      default: "no"
+
+  vars:
+    tenants:
+      - name: "{{ tenant_name }}"
+        vni: "{{ tenant_vni }}"
+        vlan: "{{ tenant_vlan }}"
+        vrf: "{{ tenant_vrf }}"
+        subnet: "{{ tenant_subnet }}"
+        gateway: "{{ tenant_gateway }}"
+
+  pre_tasks:
+    - name: Create backup directory
+      file:
+        path: "{{ config_backup_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+
+    - name: Backup current configuration
+      huawei_vrp_command:
+        commands:
+          - display current-configuration
+      register: backup_config_output
+
+    - name: Save backup configuration
+      copy:
+        content: "{{ backup_config_output.stdout[0] }}"
+        dest: "{{ config_backup_dir }}/{{ inventory_hostname }}_tenant_backup_{{ ansible_date_time.iso8601 }}.cfg"
+      delegate_to: localhost
+
+  tasks:
+    - name: Create VRF for tenant
+      huawei_vrp_config:
+        lines:
+          - ip vpn-instance {{ item.vrf }}
+          - route-distinguisher {{ asn }}:{{ item.vni }}
+          - vpn-target {{ asn }}:{{ item.vni }} export-extcommunity
+          - vpn-target {{ asn }}:{{ item.vni }} import-extcommunity
+          - quit
+      loop: "{{ tenants }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create VLAN for tenant
+      huawei_vrp_config:
+        lines:
+          - vlan {{ item.vlan }}
+          - name Tenant_{{ item.name | upper }}
+          - quit
+      loop: "{{ tenants }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create VNI and map to VLAN
+      huawei_vrp_config:
+        lines:
+          - bridge-domain {{ item.vni }}
+          - vxlan vni {{ item.vni }}
+          - quit
+          - interface Vlanif{{ item.vlan }}
+          - ip binding vpn-instance {{ item.vrf }}
+          - ip address {{ item.gateway }}
+          - quit
+      loop: "{{ tenants }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Configure VXLAN tunnel
+      huawei_vrp_config:
+        lines:
+          - interface Nve1
+          - source {{ vtep_loopback.split('/')[0] }}
+          - vni {{ item.vni }} head-end peer-list
+          - quit
+      loop: "{{ tenants }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create SVI for tenant
+      huawei_vrp_config:
+        lines:
+          - interface Vlanif{{ item.vlan }}
+          - ip binding vpn-instance {{ item.vrf }}
+          - ip address {{ item.gateway }}
+          - vxlan vni {{ item.vni }}
+          - quit
+      loop: "{{ tenants }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Configure tenant routing
+      huawei_vrp_config:
+        lines:
+          - bgp {{ asn }}
+          - ipv4-family vpn-instance {{ item.vrf }}
+          - import-route direct
+          - import-route static
+          - advertise l2vpn evpn
+          - quit
+          - quit
+      loop: "{{ tenants }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Save configuration
+      huawei_vrp_command:
+        commands:
+          - save
+
+    - name: Verify tenant configuration
+      huawei_vrp_command:
+        commands:
+          - display vpn-instance {{ item.vrf }}
+          - display bridge-domain {{ item.vni }}
+          - display vxlan tunnel
+      loop: "{{ tenants }}"
+      register: verification_output
+
+    - name: Display verification results
+      debug:
+        var: verification_output.results
+
+  post_tasks:
+    - name: Generate tenant report
+      template:
+        src: templates/tenant_report.j2
+        dest: "{{ config_backup_dir }}/tenant_report_{{ ansible_date_time.iso8601 }}.txt"
+      delegate_to: localhost
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          Tenant deployment completed!
+          Tenant: {{ tenant_name }}
+          VRF: {{ tenant_vrf }}
+          VNI: {{ tenant_vni }}
+          VLAN: {{ tenant_vlan }}
+          Subnet: {{ tenant_subnet }}
+          Gateway: {{ tenant_gateway }}

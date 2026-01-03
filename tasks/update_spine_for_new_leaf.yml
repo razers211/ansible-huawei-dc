@@ -1,0 +1,58 @@
+---
+- name: Update spine for new leaf
+  hosts: "spine{{ '%02d' | format(spine_id) }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Configure interface to new leaf
+      huawei_vrp_config:
+        lines:
+          - interface {{ item.interface }}
+          - description {{ item.description }}
+          - ip address {{ item.ip }}
+          - undo shutdown
+          - quit
+      loop: "{{ spine_interfaces }}"
+      when: item.spine_host == inventory_hostname
+
+    - name: Configure OSPF for new link
+      huawei_vrp_config:
+        lines:
+          - ospf {{ ospf_area }}
+          - area {{ ospf_area }}
+          - network {{ item.ip.split('/')[0] }} 0.0.0.3
+          - quit
+          - quit
+      loop: "{{ spine_interfaces }}"
+      when: item.spine_host == inventory_hostname
+
+    - name: Set OSPF network type to point-to-point
+      huawei_vrp_config:
+        lines:
+          - interface {{ item.interface }}
+          - ospf network-type p2p
+          - quit
+      loop: "{{ spine_interfaces }}"
+      when: item.spine_host == inventory_hostname
+
+    - name: Configure BGP peer for new leaf
+      huawei_vrp_config:
+        lines:
+          - bgp {{ asn }}
+          - peer {{ new_leaf_loopback.split('/')[0] }} as-number {{ asn }}
+          - peer {{ new_leaf_loopback.split('/')[0] }} connect-interface Loopback0
+          - peer {{ new_leaf_loopback.split('/')[0] }} password simple {{ bgp_password }}
+          - ipv4-family unicast
+          - peer {{ new_leaf_loopback.split('/')[0] }} enable
+          - peer {{ new_leaf_loopback.split('/')[0] }} route-policy PASS_ALL in
+          - peer {{ new_leaf_loopback.split('/')[0] }} route-policy PASS_ALL out
+          - l2vpn evpn
+          - peer {{ new_leaf_loopback.split('/')[0] }} enable
+          - peer {{ new_leaf_loopback.split('/')[0] }} reflect-client
+          - quit
+          - quit
+
+    - name: Save configuration
+      huawei_vrp_command:
+        commands:
+          - save

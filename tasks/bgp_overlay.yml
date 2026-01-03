@@ -1,0 +1,63 @@
+---
+- name: Configure BGP process
+  huawei_vrp_config:
+    lines:
+      - bgp {{ asn }}
+      - router-id {{ loopback0.split('/')[0] }}
+      - peer {{ item.loopback0.split('/')[0] }} as-number {{ asn }}
+      - peer {{ item.loopback0.split('/')[0] }} connect-interface Loopback0
+      - peer {{ item.loopback0.split('/')[0] }} password simple {{ bgp_password }}
+      - quit
+  loop: "{{ groups.spine if 'leaf' in group_names else groups.leaf }}"
+  when: loopback0 is defined
+
+- name: Configure BGP address families for leaf switches
+  huawei_vrp_config:
+    lines:
+      - bgp {{ asn }}
+      - ipv4-family unicast
+      - peer {{ item.loopback0.split('/')[0] }} enable
+      - peer {{ item.loopback0.split('/')[0] }} route-policy PASS_ALL in
+      - peer {{ item.loopback0.split('/')[0] }} route-policy PASS_ALL out
+      - quit
+      - l2vpn evpn
+      - peer {{ item.loopback0.split('/')[0] }} enable
+      - peer {{ item.loopback0.split('/')[0] ] advertise irb
+      - peer {{ item.loopback0.split('/')[0] ] advertise l2vpn evpn
+      - quit
+      - quit
+  loop: "{{ groups.spine }}"
+  when: "'leaf' in group_names"
+
+- name: Configure BGP address families for spine switches
+  huawei_vrp_config:
+    lines:
+      - bgp {{ asn }}
+      - ipv4-family unicast
+      - peer {{ item.loopback0.split('/')[0] }} enable
+      - peer {{ item.loopback0.split('/')[0] }} route-policy PASS_ALL in
+      - peer {{ item.loopback0.split('/')[0] }} route-policy PASS_ALL out
+      - quit
+      - l2vpn evpn
+      - peer {{ item.loopback0.split('/')[0] }} enable
+      - peer {{ item.loopback0.split('/')[0] ] advertise irb
+      - peer {{ item.loopback0.split('/')[0] ] reflect-client
+      - quit
+      - quit
+  loop: "{{ groups.leaf }}"
+  when: "'spine' in group_names"
+
+- name: Create BGP route policy
+  huawei_vrp_config:
+    lines:
+      - route-policy PASS_ALL permit node 10
+      - quit
+
+- name: Configure BGP timers
+  huawei_vrp_config:
+    lines:
+      - bgp {{ asn }}
+      - peer {{ item.loopback0.split('/')[0] }} timer keep {{ bgp_keepalive_time }} hold {{ bgp_hold_time }}
+      - quit
+  loop: "{{ groups.spine if 'leaf' in group_names else groups.leaf }}"
+  when: loopback0 is defined

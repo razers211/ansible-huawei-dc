@@ -1,0 +1,153 @@
+---
+- name: Add New Leaf Switch to Fabric
+  hosts: localhost
+  gather_facts: no
+  vars_prompt:
+    - name: "new_leaf_hostname"
+      prompt: "Enter new leaf hostname"
+      private: no
+    - name: "new_leaf_ip"
+      prompt: "Enter management IP of new leaf"
+      private: no
+    - name: "new_leaf_id"
+      prompt: "Enter leaf ID number"
+      private: no
+    - name: "new_leaf_loopback"
+      prompt: "Enter loopback0 IP (e.g., 10.255.2.3/32)"
+      private: no
+    - name: "new_leaf_vtep"
+      prompt: "Enter VTEP loopback IP (e.g., 10.255.3.3/32)"
+      private: no
+    - name: "connect_to_spines"
+      prompt: "Connect to which spines? (comma-separated spine IDs, e.g., 1,2)"
+      private: no
+    - name: "leaf_interface_start"
+      prompt: "Leaf interface starting number for new links (e.g., 3)"
+      private: no
+      default: "3"
+    - name: "interconnect_subnet"
+      prompt: "Interconnect subnet for new links (e.g., 10.1.2.0/24)"
+      private: no
+      default: "10.1.2.0/24"
+    - name: "confirm_addition"
+      prompt: "Add {{ new_leaf_hostname }} to fabric? (yes/no)"
+      private: no
+      default: "no"
+
+  vars:
+    spines_to_connect: "{{ connect_to_spines.split(',') | map('int') | list }}"
+    interface_start: "{{ leaf_interface_start | int }}"
+    subnet_base: "{{ interconnect_subnet.split('.')[0:2] | join('.') }}"
+
+  pre_tasks:
+    - name: Verify addition confirmation
+      fail:
+        msg: "Leaf addition not confirmed. Exiting."
+      when: confirm_addition != "yes"
+
+    - name: Read existing inventory
+      include_vars:
+        file: inventory/hosts.yml
+        name: existing_inventory
+
+  tasks:
+    - name: Generate spine interfaces for new leaf
+      set_fact:
+        spine_interfaces: []
+      when: spines_to_connect | length > 0
+
+    - name: Create spine interface mappings
+      set_fact:
+        spine_interfaces: "{{ spine_interfaces + [{
+          'spine_host': 'spine' + '%02d' | format(item),
+          'interface': '10GE1/0/' + ((spines_to_connect.index(item) + 1) | string),
+          'description': 'Link to ' + new_leaf_hostname,
+          'ip': subnet_base + '.' + (item | string) + '.' + ((spines_to_connect.index(item) * 4 + 1) | string) + '/30'
+        }] }}"
+      loop: "{{ spines_to_connect }}"
+
+    - name: Generate leaf interfaces
+      set_fact:
+        leaf_interfaces: "{{ leaf_interfaces + [{
+          'interface': '10GE1/0/' + ((interface_start + spines_to_connect.index(item) - 1) | string),
+          'description': 'Link to spine' + '%02d' | format(item),
+          'ip': subnet_base + '.' + (item | string) + '.' + ((spines_to_connect.index(item) * 4 + 2) | string) + '/30'
+        }] }}"
+      loop: "{{ spines_to_connect }}"
+
+    - name: Add new leaf to inventory
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ new_leaf_hostname }}"
+        block: |
+          {{ new_leaf_hostname }}:
+            ansible_host: {{ new_leaf_ip }}
+            leaf_id: {{ new_leaf_id }}
+            loopback0: {{ new_leaf_loopback }}
+            vtep_loopback: {{ new_leaf_vtep }}
+            leaf_interfaces:
+        insertafter: "leaf:"
+      when: spines_to_connect | length > 0
+
+    - name: Add leaf interfaces to inventory
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ new_leaf_hostname }} INTERFACES"
+        block: "{{ leaf_interfaces | to_nice_yaml | indent(12) }}"
+        insertafter: "{{ new_leaf_hostname }}:"
+      when: spines_to_connect | length > 0
+
+    - name: Add interfaces to spines
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ item.spine_host }} to {{ new_leaf_hostname }}"
+        block: "              - interface: {{ item.interface }}\n                description: {{ item.description }}\n                ip: {{ item.ip }}"
+        insertafter: "{{ item.spine_host }}:"
+      loop: "{{ spine_interfaces }}"
+      when: spines_to_connect | length > 0
+
+    - name: Configure new leaf switch
+      include_tasks: tasks/configure_new_leaf.yml
+      vars:
+        target_leaf: "{{ new_leaf_hostname }}"
+      when: spines_to_connect | length > 0
+
+    - name: Update spine configurations
+      include_tasks: tasks/update_spine_for_new_leaf.yml
+      vars:
+        new_leaf_name: "{{ new_leaf_hostname }}"
+        new_leaf_loopback: "{{ new_leaf_loopback }}"
+        spine_interfaces: "{{ spine_interfaces }}"
+      loop: "{{ spines_to_connect }}"
+      loop_control:
+        loop_var: spine_id
+
+  post_tasks:
+    - name: Generate addition report
+      template:
+        src: templates/leaf_addition_report.j2
+        dest: "{{ config_backup_dir }}/leaf_addition_{{ new_leaf_hostname }}_{{ ansible_date_time.iso8601 }}.txt"
+      delegate_to: localhost
+      vars:
+        new_leaf_info:
+          hostname: "{{ new_leaf_hostname }}"
+          ip: "{{ new_leaf_ip }}"
+          leaf_id: "{{ new_leaf_id }}"
+          loopback: "{{ new_leaf_loopback }}"
+          vtep: "{{ new_leaf_vtep }}"
+          connected_spines: "{{ spines_to_connect }}"
+
+    - name: Display addition summary
+      debug:
+        msg: |
+          Leaf {{ new_leaf_hostname }} added successfully!
+          Management IP: {{ new_leaf_ip }}
+          Leaf ID: {{ new_leaf_id }}
+          Loopback0: {{ new_leaf_loopback }}
+          VTEP Loopback: {{ new_leaf_vtep }}
+          Connected to spines: {{ spines_to_connect | join(', ') }}
+          
+          Next steps:
+          1. Verify connectivity: ping {{ new_leaf_loopback.split('/')[0] }}
+          2. Check BGP peers: display bgp peer
+          3. Deploy tenant networks to new leaf if needed

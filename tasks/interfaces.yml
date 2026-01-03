@@ -1,0 +1,73 @@
+---
+- name: Configure loopback interfaces
+  huawei_vrp_config:
+    lines:
+      - interface Loopback0
+      - ip address {{ loopback0 }}
+      - description Loopback for BGP and OSPF
+      - quit
+  when: loopback0 is defined
+
+- name: Configure VTEP loopback on leaf switches
+  huawei_vrp_config:
+    lines:
+      - interface Loopback1
+      - ip address {{ vtep_loopback }}
+      - description VTEP Source Interface
+      - quit
+  when: 
+    - "'leaf' in group_names"
+    - vtep_loopback is defined
+
+- name: Configure spine interfaces
+  huawei_vrp_config:
+    lines:
+      - interface {{ item.interface }}
+      - description {{ item.description }}
+      - ip address {{ item.ip }}
+      - undo shutdown
+      - quit
+  loop: "{{ spine_interfaces }}"
+  when: "'spine' in group_names"
+
+- name: Configure leaf interfaces
+  huawei_vrp_config:
+    lines:
+      - interface {{ item.interface }}
+      - description {{ item.description }}
+      - ip address {{ item.ip }}
+      - undo shutdown
+      - quit
+  loop: "{{ leaf_interfaces }}"
+  when: "'leaf' in group_names"
+
+- name: Configure access ports on leaf switches
+  huawei_vrp_config:
+    lines:
+      - interface {{ item.interface }}
+      - description {{ item.description }}
+      - port link-type access
+      - port default vlan {{ item.vlan }}
+      - undo shutdown
+      - quit
+  loop: "{{ leaf_interfaces }}"
+  when: 
+    - "'leaf' in group_names"
+    - item.mode is defined
+    - item.mode == "access"
+    - item.vlan is defined
+
+- name: Configure trunk ports on leaf switches
+  huawei_vrp_config:
+    lines:
+      - interface {{ item.interface }}
+      - description {{ item.description }}
+      - port link-type trunk
+      - port trunk allow-pass vlan {{ item.vlan_range | default(default_vlan_range) }}
+      - undo shutdown
+      - quit
+  loop: "{{ leaf_interfaces }}"
+  when: 
+    - "'leaf' in group_names"
+    - item.mode is defined
+    - item.mode == "trunk"

@@ -1,0 +1,37 @@
+---
+- name: Configure new spine switch
+  hosts: "{{ target_spine }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Configure basic system settings
+      include_tasks: basic_system.yml
+
+    - name: Configure loopback interface
+      huawei_vrp_config:
+        lines:
+          - interface Loopback0
+          - ip address {{ loopback0 }}
+          - description Loopback for BGP and OSPF
+          - quit
+
+    - name: Configure spine interfaces
+      huawei_vrp_config:
+        lines:
+          - interface {{ item.interface }}
+          - description {{ item.description }}
+          - ip address {{ item.ip }}
+          - undo shutdown
+          - quit
+      loop: "{{ spine_interfaces }}"
+
+    - name: Configure OSPF
+      include_tasks: underlay_routing.yml
+
+    - name: Configure BGP
+      include_tasks: bgp_overlay.yml
+
+    - name: Save configuration
+      huawei_vrp_command:
+        commands:
+          - save

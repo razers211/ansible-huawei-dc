@@ -1,0 +1,46 @@
+---
+- name: Configure new leaf switch
+  hosts: "{{ target_leaf }}"
+  gather_facts: no
+  vars:
+    ansible_host: "{{ hostvars[inventory_hostname].ansible_host }}"
+  
+  tasks:
+    - name: Configure basic system settings
+      include_tasks: basic_system.yml
+
+    - name: Configure loopback interfaces
+      huawei_vrp_config:
+        lines:
+          - interface Loopback0
+          - ip address {{ loopback0 }}
+          - description Loopback for BGP and OSPF
+          - quit
+          - interface Loopback1
+          - ip address {{ vtep_loopback }}
+          - description VTEP Source Interface
+          - quit
+
+    - name: Configure leaf interfaces
+      huawei_vrp_config:
+        lines:
+          - interface {{ item.interface }}
+          - description {{ item.description }}
+          - ip address {{ item.ip }}
+          - undo shutdown
+          - quit
+      loop: "{{ leaf_interfaces }}"
+
+    - name: Configure OSPF
+      include_tasks: underlay_routing.yml
+
+    - name: Configure BGP
+      include_tasks: bgp_overlay.yml
+
+    - name: Configure VXLAN
+      include_tasks: vxlan.yml
+
+    - name: Save configuration
+      huawei_vrp_command:
+        commands:
+          - save

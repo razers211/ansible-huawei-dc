@@ -1,0 +1,71 @@
+---
+- name: Configure OSPF process
+  huawei_vrp_config:
+    lines:
+      - ospf {{ ospf_area }}
+      - router-id {{ loopback0.split('/')[0] }}
+      - quit
+
+- name: Advertise loopback in OSPF
+  huawei_vrp_config:
+    lines:
+      - ospf {{ ospf_area }}
+      - area {{ ospf_area }}
+      - network {{ loopback0.split('/')[0] }} 0.0.0.0
+      - quit
+      - quit
+  when: loopback0 is defined
+
+- name: Advertise VTEP loopback in OSPF (leaf only)
+  huawei_vrp_config:
+    lines:
+      - ospf {{ ospf_area }}
+      - area {{ ospf_area }}
+      - network {{ vtep_loopback.split('/')[0] }} 0.0.0.0
+      - quit
+      - quit
+  when: 
+    - "'leaf' in group_names"
+    - vtep_loopback is defined
+
+- name: Advertise point-to-point links in OSPF
+  huawei_vrp_config:
+    lines:
+      - ospf {{ ospf_area }}
+      - area {{ ospf_area }}
+      - network {{ item.ip.split('/')[0] }} 0.0.0.3
+      - quit
+      - quit
+  loop: "{{ spine_interfaces if 'spine' in group_names else leaf_interfaces }}"
+  when: item.ip is defined
+
+- name: Set OSPF network type to point-to-point
+  huawei_vrp_config:
+    lines:
+      - interface {{ item.interface }}
+      - ospf network-type p2p
+      - quit
+  loop: "{{ spine_interfaces if 'spine' in group_names else leaf_interfaces }}"
+  when: item.ip is defined
+
+- name: Configure OSPF passive interfaces
+  huawei_vrp_config:
+    lines:
+      - ospf {{ ospf_area }}
+      - area {{ ospf_area }}
+      - passive-interface Loopback0
+      - quit
+      - quit
+  when: loopback0 is defined
+
+- name: Configure OSPF passive VTEP interface (leaf only)
+  huawei_vrp_config:
+    lines:
+      - ospf {{ ospf_area }}
+      - area {{ ospf_area }}
+      - passive-interface Loopback1
+      - quit
+      - quit
+  when: 
+    - "'leaf' in group_names"
+    - vtep_loopback is defined

@@ -1,0 +1,93 @@
+---
+- name: Verify Fabric Health
+  hosts: all
+  gather_facts: no
+  vars:
+    verification_results: []
+
+  tasks:
+    - name: Check system status
+      huawei_vrp_command:
+        commands:
+          - display device
+          - display version
+          - display cpu-usage
+          - display memory-usage
+      register: system_status
+
+    - name: Check interface status
+      huawei_vrp_command:
+        commands:
+          - display ip interface brief
+      register: interface_status
+
+    - name: Check OSPF neighbors
+      huawei_vrp_command:
+        commands:
+          - display ospf peer
+      register: ospf_status
+
+    - name: Check BGP peers
+      huawei_vrp_command:
+        commands:
+          - display bgp peer
+      register: bgp_status
+
+    - name: Check VXLAN status (leaf only)
+      huawei_vrp_command:
+        commands:
+          - display vxlan tunnel
+          - display bridge-domain
+      register: vxlan_status
+      when: "'leaf' in group_names"
+
+    - name: Check VRF status
+      huawei_vrp_command:
+        commands:
+          - display vpn-instance
+      register: vrf_status
+      when: "'leaf' in group_names"
+
+    - name: Parse interface status
+      set_fact:
+        up_interfaces: "{{ interface_status.stdout_lines[0] | select('search', 'up') | list | length }}"
+        total_interfaces: "{{ interface_status.stdout_lines[0] | length - 2 }}"
+
+    - name: Parse OSPF status
+      set_fact:
+        ospf_neighbors: "{{ ospf_status.stdout_lines[0] | select('search', 'Full') | list | length }}"
+
+    - name: Parse BGP status
+      set_fact:
+        bgp_established: "{{ bgp_status.stdout_lines[0] | select('search', 'Established') | list | length }}"
+
+    - name: Compile verification results
+      set_fact:
+        verification_results: "{{ verification_results + [{
+          'hostname': inventory_hostname,
+          'type': 'spine' if 'spine' in group_names else 'leaf',
+          'interfaces_up': up_interfaces,
+          'interfaces_total': total_interfaces,
+          'ospf_neighbors': ospf_neighbors,
+          'bgp_peers': bgp_established
+        }] }}"
+
+  post_tasks:
+    - name: Generate verification report
+      template:
+        src: templates/verification_report.j2
+        dest: "{{ config_backup_dir }}/fabric_verification_{{ ansible_date_time.iso8601 }}.txt"
+      delegate_to: localhost
+      vars:
+        all_results: "{{ verification_results }}"
+
+    - name: Display verification summary
+      debug:
+        msg: |
+          Fabric verification completed for {{ inventory_hostname }}:
+          - Interfaces: {{ up_interfaces }}/{{ total_interfaces }} up
+          - OSPF Neighbors: {{ ospf_neighbors }}
+          - BGP Peers: {{ bgp_established }}
+          {% if 'leaf' in group_names %}
+          - VXLAN Tunnels: {{ vxlan_status.stdout_lines[0] | length - 2 }}
+          {% endif %}

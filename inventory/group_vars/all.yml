@@ -1,0 +1,46 @@
+---
+ansible_network_os: huawei.vrp.vrp
+ansible_connection: network_cli
+ansible_user: admin
+ansible_password: "{{ vault_admin_password }}"
+ansible_become: yes
+ansible_become_method: enable
+ansible_become_password: "{{ vault_enable_password }}"
+
+# Fabric Configuration
+fabric_name: spine_leaf_fabric
+underlay_routing_protocol: ospf
+overlay_routing_protocol: bgp
+asn: 65000
+
+# Network Defaults
+default_mtu: 9216
+default_vlan_range: "1000-1999"
+default_vrf_range: "10-99"
+
+# Interface Defaults
+leaf_spine_link_speed: 100G
+leaf_spine_breakout: 4x25G
+
+# BGP Configuration
+bgp_password: "{{ vault_bgp_password }}"
+bgp_hold_time: 180
+bgp_keepalive_time: 60
+
+# OSPF Configuration
+ospf_area: 0
+ospf_network: 10.0.0.0/8
+
+# VXLAN Configuration
+vni_range: "10000-19999"
+vtep_loopback_range: "10.255.0.0/16"
+
+# Logging
+logging_level: informational
+syslog_servers: []
+ntp_servers: []
+dns_servers: []
+
+# Safety
+backup_config: true
+config_backup_dir: "./backups"

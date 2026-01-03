@@ -1,0 +1,12 @@
+---
+collections:
+  - name: ansible.netcommon
+    version: ">=5.0.0"
+  - name: community.network
+    version: ">=5.0.0"
+
+roles:
+  - name: network_common
+    src: ansible.netcommon.network_cli
+
+python_requires: ">=3.8"

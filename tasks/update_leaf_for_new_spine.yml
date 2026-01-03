@@ -1,0 +1,59 @@
+---
+- name: Update leaf for new spine
+  hosts: "leaf{{ '%02d' | format(leaf_id) }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Configure interface to new spine
+      huawei_vrp_config:
+        lines:
+          - interface {{ item.interface }}
+          - description {{ item.description }}
+          - ip address {{ item.ip }}
+          - undo shutdown
+          - quit
+      loop: "{{ leaf_interfaces }}"
+      when: item.leaf_host == inventory_hostname
+
+    - name: Configure OSPF for new link
+      huawei_vrp_config:
+        lines:
+          - ospf {{ ospf_area }}
+          - area {{ ospf_area }}
+          - network {{ item.ip.split('/')[0] }} 0.0.0.3
+          - quit
+          - quit
+      loop: "{{ leaf_interfaces }}"
+      when: item.leaf_host == inventory_hostname
+
+    - name: Set OSPF network type to point-to-point
+      huawei_vrp_config:
+        lines:
+          - interface {{ item.interface }}
+          - ospf network-type p2p
+          - quit
+      loop: "{{ leaf_interfaces }}"
+      when: item.leaf_host == inventory_hostname
+
+    - name: Configure BGP peer for new spine
+      huawei_vrp_config:
+        lines:
+          - bgp {{ asn }}
+          - peer {{ new_spine_loopback.split('/')[0] }} as-number {{ asn }}
+          - peer {{ new_spine_loopback.split('/')[0] }} connect-interface Loopback0
+          - peer {{ new_spine_loopback.split('/')[0] }} password simple {{ bgp_password }}
+          - ipv4-family unicast
+          - peer {{ new_spine_loopback.split('/')[0] }} enable
+          - peer {{ new_spine_loopback.split('/')[0] }} route-policy PASS_ALL in
+          - peer {{ new_spine_loopback.split('/')[0] }} route-policy PASS_ALL out
+          - l2vpn evpn
+          - peer {{ new_spine_loopback.split('/')[0] }} enable
+          - peer {{ new_spine_loopback.split('/')[0] }} advertise irb
+          - peer {{ new_spine_loopback.split('/')[0] }} advertise l2vpn evpn
+          - quit
+          - quit
+
+    - name: Save configuration
+      huawei_vrp_command:
+        commands:
+          - save

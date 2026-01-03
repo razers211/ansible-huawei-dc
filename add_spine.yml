@@ -1,0 +1,147 @@
+---
+- name: Add New Spine Switch to Fabric
+  hosts: localhost
+  gather_facts: no
+  vars_prompt:
+    - name: "new_spine_hostname"
+      prompt: "Enter new spine hostname"
+      private: no
+    - name: "new_spine_ip"
+      prompt: "Enter management IP of new spine"
+      private: no
+    - name: "new_spine_id"
+      prompt: "Enter spine ID number"
+      private: no
+    - name: "new_spine_loopback"
+      prompt: "Enter loopback0 IP (e.g., 10.255.1.3/32)"
+      private: no
+    - name: "connect_to_leaves"
+      prompt: "Connect to which leaves? (comma-separated leaf IDs, e.g., 1,2)"
+      private: no
+    - name: "spine_interface_start"
+      prompt: "Spine interface starting number for new links (e.g., 3)"
+      private: no
+      default: "3"
+    - name: "interconnect_subnet"
+      prompt: "Interconnect subnet for new links (e.g., 10.1.3.0/24)"
+      private: no
+      default: "10.1.3.0/24"
+    - name: "confirm_addition"
+      prompt: "Add {{ new_spine_hostname }} to fabric? (yes/no)"
+      private: no
+      default: "no"
+
+  vars:
+    leaves_to_connect: "{{ connect_to_leaves.split(',') | map('int') | list }}"
+    interface_start: "{{ spine_interface_start | int }}"
+    subnet_base: "{{ interconnect_subnet.split('.')[0:2] | join('.') }}"
+
+  pre_tasks:
+    - name: Verify addition confirmation
+      fail:
+        msg: "Spine addition not confirmed. Exiting."
+      when: confirm_addition != "yes"
+
+    - name: Read existing inventory
+      include_vars:
+        file: inventory/hosts.yml
+        name: existing_inventory
+
+  tasks:
+    - name: Generate leaf interfaces for new spine
+      set_fact:
+        leaf_interfaces: []
+      when: leaves_to_connect | length > 0
+
+    - name: Create leaf interface mappings
+      set_fact:
+        leaf_interfaces: "{{ leaf_interfaces + [{
+          'leaf_host': 'leaf' + '%02d' | format(item),
+          'interface': '10GE1/0/' + ((interface_start + leaves_to_connect.index(item) - 1) | string),
+          'description': 'Link to ' + new_spine_hostname,
+          'ip': subnet_base + '.' + (new_spine_id | string) + '.' + ((leaves_to_connect.index(item) * 4 + 2) | string) + '/30'
+        }] }}"
+      loop: "{{ leaves_to_connect }}"
+
+    - name: Generate spine interfaces
+      set_fact:
+        spine_interfaces: "{{ spine_interfaces + [{
+          'interface': '10GE1/0/' + ((interface_start + leaves_to_connect.index(item) - 1) | string),
+          'description': 'Link to leaf' + '%02d' | format(item),
+          'ip': subnet_base + '.' + (new_spine_id | string) + '.' + ((leaves_to_connect.index(item) * 4 + 1) | string) + '/30'
+        }] }}"
+      loop: "{{ leaves_to_connect }}"
+
+    - name: Add new spine to inventory
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ new_spine_hostname }}"
+        block: |
+          {{ new_spine_hostname }}:
+            ansible_host: {{ new_spine_ip }}
+            spine_id: {{ new_spine_id }}
+            loopback0: {{ new_spine_loopback }}
+            spine_interfaces:
+        insertafter: "spine:"
+      when: leaves_to_connect | length > 0
+
+    - name: Add spine interfaces to inventory
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ new_spine_hostname }} INTERFACES"
+        block: "{{ spine_interfaces | to_nice_yaml | indent(12) }}"
+        insertafter: "{{ new_spine_hostname }}:"
+      when: leaves_to_connect | length > 0
+
+    - name: Add interfaces to leaves
+      blockinfile:
+        path: inventory/hosts.yml
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ item.leaf_host }} to {{ new_spine_hostname }}"
+        block: "              - interface: {{ item.interface }}\n                description: {{ item.description }}\n                ip: {{ item.ip }}"
+        insertafter: "{{ item.leaf_host }}:"
+      loop: "{{ leaf_interfaces }}"
+      when: leaves_to_connect | length > 0
+
+    - name: Configure new spine switch
+      include_tasks: tasks/configure_new_spine.yml
+      vars:
+        target_spine: "{{ new_spine_hostname }}"
+      when: leaves_to_connect | length > 0
+
+    - name: Update leaf configurations
+      include_tasks: tasks/update_leaf_for_new_spine.yml
+      vars:
+        new_spine_name: "{{ new_spine_hostname }}"
+        new_spine_loopback: "{{ new_spine_loopback }}"
+        leaf_interfaces: "{{ leaf_interfaces }}"
+      loop: "{{ leaves_to_connect }}"
+      loop_control:
+        loop_var: leaf_id
+
+  post_tasks:
+    - name: Generate addition report
+      template:
+        src: templates/spine_addition_report.j2
+        dest: "{{ config_backup_dir }}/spine_addition_{{ new_spine_hostname }}_{{ ansible_date_time.iso8601 }}.txt"
+      delegate_to: localhost
+      vars:
+        new_spine_info:
+          hostname: "{{ new_spine_hostname }}"
+          ip: "{{ new_spine_ip }}"
+          spine_id: "{{ new_spine_id }}"
+          loopback: "{{ new_spine_loopback }}"
+          connected_leaves: "{{ leaves_to_connect }}"
+
+    - name: Display addition summary
+      debug:
+        msg: |
+          Spine {{ new_spine_hostname }} added successfully!
+          Management IP: {{ new_spine_ip }}
+          Spine ID: {{ new_spine_id }}
+          Loopback0: {{ new_spine_loopback }}
+          Connected to leaves: {{ leaves_to_connect | join(', ') }}
+          
+          Next steps:
+          1. Verify connectivity: ping {{ new_spine_loopback.split('/')[0] }}
+          2. Check BGP peers: display bgp peer
+          3. Verify fabric redundancy
