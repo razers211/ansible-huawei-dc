@@ -88,8 +88,31 @@ class InventoryGenerator:
         
         # Management IPs
         print("\n💻 Management IP Configuration")
-        config['mgmt_base_ip'] = input("Management IP base [192.168.1]: ").strip() or "192.168.1"
-        config['mgmt_start'] = int(input("Management IP start [10]: ").strip() or "10")
+        mgmt_mode = input("Management IP mode (auto/manual) [auto]: ").strip() or "auto"
+        config['mgmt_mode'] = mgmt_mode
+        
+        if mgmt_mode == "manual":
+            config['spine_mgmt_ips'] = {}
+            config['leaf_mgmt_ips'] = {}
+            
+            print("\n🔧 Spine Management IPs:")
+            for i in range(config['spine_count']):
+                hostname = f"spine{i+1:02d}"
+                mgmt_ip = input(f"  {hostname} management IP: ").strip()
+                while not mgmt_ip:
+                    mgmt_ip = input(f"  {hostname} management IP (required): ").strip()
+                config['spine_mgmt_ips'][hostname] = mgmt_ip
+            
+            print("\n🔧 Leaf Management IPs:")
+            for i in range(config['leaf_count']):
+                hostname = f"leaf{i+1:02d}"
+                mgmt_ip = input(f"  {hostname} management IP: ").strip()
+                while not mgmt_ip:
+                    mgmt_ip = input(f"  {hostname} management IP (required): ").strip()
+                config['leaf_mgmt_ips'][hostname] = mgmt_ip
+        else:
+            config['mgmt_base_ip'] = input("Management IP base [192.168.1]: ").strip() or "192.168.1"
+            config['mgmt_start'] = int(input("Management IP start [10]: ").strip() or "10")
         
         return config
     
@@ -136,10 +159,21 @@ class InventoryGenerator:
                 }
         
         # Generate management IPs
-        mgmt_ips = []
-        for i in range(config['spine_count'] + config['leaf_count']):
-            mgmt_ip = f"{config['mgmt_base_ip']}.{config['mgmt_start'] + i}"
-            mgmt_ips.append(mgmt_ip)
+        if config.get('mgmt_mode') == "manual":
+            mgmt_ips = []
+            # Use manually specified IPs
+            for i in range(config['spine_count']):
+                hostname = f"spine{i+1:02d}"
+                mgmt_ips.append(config['spine_mgmt_ips'][hostname])
+            for i in range(config['leaf_count']):
+                hostname = f"leaf{i+1:02d}"
+                mgmt_ips.append(config['leaf_mgmt_ips'][hostname])
+        else:
+            # Auto-generate management IPs
+            mgmt_ips = []
+            for i in range(config['spine_count'] + config['leaf_count']):
+                mgmt_ip = f"{config['mgmt_base_ip']}.{config['mgmt_start'] + i}"
+                mgmt_ips.append(mgmt_ip)
         
         ip_scheme = {
             'spine_loopbacks': spine_loopbacks,
@@ -154,7 +188,13 @@ class InventoryGenerator:
     def generate_spine_config(self, spine_idx: int, config: Dict, ip_scheme: Dict) -> Dict:
         """Generate configuration for a spine switch"""
         hostname = f"spine{spine_idx+1:02d}"
-        mgmt_ip = ip_scheme['mgmt_ips'][spine_idx]
+        
+        # Get management IP based on mode
+        if config.get('mgmt_mode') == "manual":
+            mgmt_ip = config['spine_mgmt_ips'][hostname]
+        else:
+            mgmt_ip = ip_scheme['mgmt_ips'][spine_idx]
+        
         loopback0 = ip_scheme['spine_loopbacks'][spine_idx]
         
         spine_interfaces = []
@@ -195,7 +235,13 @@ class InventoryGenerator:
     
     def generate_leaf_config(self, leaf_idx: int, config: Dict, ip_scheme: Dict) -> Dict:
         hostname = f"leaf{leaf_idx+1:02d}"
-        mgmt_ip = ip_scheme['mgmt_ips'][config['spine_count'] + leaf_idx]
+        
+        # Get management IP based on mode
+        if config.get('mgmt_mode') == "manual":
+            mgmt_ip = config['leaf_mgmt_ips'][hostname]
+        else:
+            mgmt_ip = ip_scheme['mgmt_ips'][config['spine_count'] + leaf_idx]
+        
         loopback0 = ip_scheme['leaf_loopbacks'][leaf_idx]
         vtep_loopback = ip_scheme['vtep_loopbacks'][leaf_idx]
         
@@ -323,11 +369,19 @@ class InventoryGenerator:
             print(f"  Leaf Access Interface: 10GE1/0/{config['leaf_access_interface']}")
         print()
         print("💻 Management IPs:")
-        for i, ip in enumerate(ip_scheme['mgmt_ips']):
-            device_type = "Spine" if i < config['spine_count'] else "Leaf"
-            device_num = (i if i < config['spine_count'] else i - config['spine_count']) + 1
-            hostname = f"{device_type.lower()}{device_num:02d}"
-            print(f"  {hostname}: {ip}")
+        if config.get('mgmt_mode') == "manual":
+            print("  Mode: Manual (user-specified)")
+            for hostname, ip in config.get('spine_mgmt_ips', {}).items():
+                print(f"  {hostname}: {ip}")
+            for hostname, ip in config.get('leaf_mgmt_ips', {}).items():
+                print(f"  {hostname}: {ip}")
+        else:
+            print("  Mode: Auto-generated")
+            for i, ip in enumerate(ip_scheme['mgmt_ips']):
+                device_type = "Spine" if i < config['spine_count'] else "Leaf"
+                device_num = (i if i < config['spine_count'] else i - config['spine_count']) + 1
+                hostname = f"{device_type.lower()}{device_num:02d}"
+                print(f"  {hostname}: {ip}")
         
         print("\n" + "=" * 60)
     
